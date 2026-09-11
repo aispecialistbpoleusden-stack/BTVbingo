@@ -6,7 +6,7 @@
 <title>Bingo Basistaalvaardigheid</title>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getDatabase, ref, set, get, update, onValue, push, child, runTransaction }
+  import { getDatabase, ref, set, get, update, onValue, push, child, runTransaction, remove }
     from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
   const firebaseConfig = {
@@ -22,9 +22,7 @@
   const app = initializeApp(firebaseConfig);
   const db  = getDatabase(app);
   window.db = db;
-
-  // Expose Firebase helpers op window voor gebruik in <script>
-  window.fb = { ref, set, get, update, onValue, push, child, runTransaction };
+  window.fb = { ref, set, get, update, onValue, push, child, runTransaction, remove };
   window.dispatchEvent(new Event('firebase-ready'));
 </script>
 <style>
@@ -50,7 +48,6 @@
   .badge{background:var(--blue);padding:5px 12px;border-radius:20px;font-size:.85rem;}
   .container{max-width:1200px;margin:0 auto;padding:22px;}
 
-  /* Login */
   .login-wrap{display:flex;flex-direction:column;gap:14px;max-width:420px;margin:60px auto;
     background:var(--card);padding:28px;border-radius:18px;box-shadow:0 20px 60px rgba(0,0,0,.5);}
   .login-wrap h2{margin:0 0 8px;}
@@ -71,10 +68,7 @@
   button.danger{background:linear-gradient(135deg,#e74c3c,#c0392b);}
   button.acc{background:linear-gradient(135deg,#ffd166,#f39c12);color:#222;}
 
-  /* Kaart */
-  .bingo-grid{
-    display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:18px;
-  }
+  .bingo-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:18px;}
   .cell{
     aspect-ratio:1/1;background:var(--card);border-radius:14px;
     display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -88,7 +82,6 @@
   .cell.active{border-color:var(--acc);box-shadow:0 0 20px rgba(255,209,102,.5);}
   .cell .qid{font-size:.7rem;color:#aab;position:absolute;top:6px;left:8px;}
 
-  /* Vraagmodal */
   .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;
     align-items:center;justify-content:center;z-index:100;padding:18px;}
   .modal{background:var(--bg2);border-radius:18px;padding:26px;max-width:640px;width:100%;
@@ -101,7 +94,6 @@
   .modal .opt:hover{border-color:var(--blue);}
   .modal .opt input{margin-right:10px;width:auto;}
 
-  /* Docent */
   .tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;}
   .tabs button{background:#2a3054;}
   .tabs button.active{background:linear-gradient(135deg,#4a90e2,#7b5cff);}
@@ -111,17 +103,14 @@
   .row > *{flex:1;min-width:120px;}
   .small{font-size:.85rem;color:#aab;}
 
-  /* Leaderboard */
   .lb{list-style:none;padding:0;margin:0;}
   .lb li{display:flex;justify-content:space-between;padding:11px 14px;border-radius:10px;
     background:#1a1f38;margin-bottom:8px;border-left:4px solid var(--blue);}
   .lb li.me{border-left-color:var(--acc);background:#2a2640;}
   .lb .pts{font-weight:700;color:var(--acc);}
 
-  /* Confetti */
   #confetti{position:fixed;inset:0;pointer-events:none;z-index:200;}
 
-  /* Winnaar */
   .win{position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;
     justify-content:center;z-index:300;text-align:center;padding:20px;}
   .win .box{background:linear-gradient(135deg,#2b1e5e,#3a1f66);padding:40px;border-radius:24px;
@@ -135,6 +124,11 @@
     background:#2ecc71;color:#04240f;padding:12px 22px;border-radius:30px;font-weight:700;
     box-shadow:0 10px 30px rgba(0,0,0,.5);z-index:250;}
   .toast.err{background:#e74c3c;color:#fff;}
+
+  .set-item{display:flex;justify-content:space-between;align-items:center;
+    padding:10px 14px;background:#1a1f38;border-radius:10px;margin-bottom:8px;
+    border-left:4px solid var(--blue);}
+  .set-item .meta{font-size:.85rem;color:#aab;}
 
   @media(max-width:600px){
     .bingo-grid{gap:6px;}
@@ -153,42 +147,91 @@
 <canvas id="confetti"></canvas>
 
 <script>
+/* ============ STANDAARDSET (seed) ============ */
+const SEED_SET = [
+  { id:1,  type:"mc", q:"Welke zin is grammaticaal correct geschreven?",
+    options:["Het gebeurt helaas te vaak dat studenten deze fout maken.","Het gebeurd helaas te vaak dat studenten deze fout maken.","Het gebeurt vaakt dat studenten deze fout maken.","Het gebeurd vaakt dat studenten deze fout maken."], correct:"A" },
+  { id:2,  type:"mc", q:"Vul de juiste vorm in: \"De monteur ___ de motor van de vrachtwagen gisteren.\"",
+    options:["repareerd","repareert","repareerde","repareerdde"], correct:"C" },
+  { id:3,  type:"mc", q:"Welke zin bevat een fout in de verleden tijd?",
+    options:["Hij antwoordde gisteren direct op mijn e-mail.","Zij vermaakte zich uitstekend tijdens haar stage.","De manager verhuiste vorige week naar een nieuw kantoor.","Het bedrijf vergrootte de winstmarges aanzienlijk."], correct:"C" },
+  { id:4,  type:"mc", q:"Wat is de correcte schrijfwijze van de uitdrukking die 'altijd' of 'op elk moment' betekent?",
+    options:["te allen tijde","te alle tijde","ten allen tijde","te allen tijden"], correct:"A" },
+  { id:5,  type:"mc", q:"Als je een argumentatie wilt afsluiten met een laatste punt, welke schrijfwijze gebruik je dan?",
+    options:["ten slotte","tenslotte","ten-slotte","per slot van rekening"], correct:"A" },
+  { id:6,  type:"mc", q:"Welke schrijfwijze van de achternaam is juist als de voornaam of initiaal ontbreekt?",
+    options:["De heer de Vries","De heer De Vries","De Heer De Vries","De heer De vries"], correct:"B" },
+  { id:7,  type:"mc", q:"Wat betekent de uitdrukking \"De bakens verzetten\"?",
+    options:["Een heel andere koers of aanpak gaan volgen.","Zwaar fysiek werk verrichten tijdens een project.","Iemand opzettelijk op het verkeerde been zetten.","De schuld van een gemaakte fout op een collega afschuiven."], correct:"A" },
+  { id:8,  type:"mc", q:"Welk voltooid deelwoord is correct gespeld?",
+    options:["De student heeft alle modules succesvol afgerond.","De student heeft alle modules succesvol afgeront.","De student heeft alle modules succesvol afronde.","De student heeft alle modules succesvol afgerondt."], correct:"A" },
+  { id:9,  type:"mc", q:"Vul de juiste uitdrukking in: \"Het project is _______ de krappe deadline helaas mislukt.\"",
+    options:["met het oog op","in verband met","ten aanzien van","bij wijze van"], correct:"B" },
+  { id:10, type:"mc", q:"Hoe schrijf je deze straatnaam correct in een pv?",
+    options:["Koningin julianastraat","Koningin Julianastraat","koningin julianastraat","Koningin-Julianastraat"], correct:"B" },
+  { id:11, type:"mc", q:"Wat doet iemand die \"Spijkers op laag water zoekt\"?",
+    options:["Klagen over verzonnen of onbeduidende kleinigheden.","Goedkope materialen proberen te kopen voor een klus.","Heel slim misbruik maken van een slechte situatie.","Zonder goede voorbereiding aan een project beginnen."], correct:"A" },
+  { id:12, type:"mc", q:"Welke gebiedende wijs is grammaticaal correct?",
+    options:["Meldt u direct bij de balie zodra u binnenkomt.","Meld u direct bij de balie zodra u binnenkomt.","Meldt u allen direct bij de balie.","Zowel optie A als C zijn juist."], correct:"B" },
+  { id:13, type:"mc", q:"\"De maatregelen werden getroffen _______ de algemene veiligheid.\"",
+    options:["met het oog op","in tegenstelling tot","ten aanzien van","op basis van"], correct:"A" },
+  { id:14, type:"mc", q:"Kies de correct gespelde straatnaam met een ambtstitel erin:",
+    options:["Burgemeester de deckerlaan","Burgemeester De Deckerlaan","burgemeester de Deckerlaan","Burgemeester de Deckerlaan"], correct:"D" },
+  { id:15, type:"mc", q:"Als een burger of collega \"Moord en brand schreeuwt\", wat doet deze persoon dan?",
+    options:["Luidkeels en overdreven klagen over onrecht of een probleem.","Een gevaarlijke situatie direct melden aan de leidinggevende.","Anderen valselijk beschuldigen van een ernstig misdrijf.","Heel agressief ruzie zoeken op de werkvloer."], correct:"A" },
+  { id:16, type:"mc", q:"Kies de juiste spelling bij deze vraag: \"_____ jij dat een haalbaar plan?\"",
+    options:["Vindt","Vind","Vind't","Vindt-ie"], correct:"B" },
+  { id:17, type:"mc", q:"Welke schrijfwijze is correct als de voornaam wél vermeld wordt?",
+    options:["Peter de Vries","Peter De Vries","peter de vries","Peter de vries"], correct:"A" },
+  { id:18, type:"mc", q:"Welke zin is correct gespeld?",
+    options:["Bij de auto stonden de automobilist, de heer Bakker, en een fietser.","Bij de auto stonden de automobilist, de heer Bakker en een fietser.","Bij de auto stonden de automobilist de heer Bakker, en een fietser.","A en B zijn beide goed."], correct:"B" },
+  { id:19, type:"mc", q:"Wat betekent het als een persoon \"Eieren voor zijn geld kiest\"?",
+    options:["Gezond verstand boven winstbejag verkiezen.","Met minder genoegen nemen om grotere problemen te voorkomen.","Een zeer riskante financiële investering doen.","Bestaande plannen op het allerlaatste moment afblazen."], correct:"B" },
+  { id:20, type:"mc", q:"\"De totale opbrengst van de actie is bestemd _____ het goede doel.\"",
+    options:["ten bate van","ten koste van","ten behoeve van","ten aanzien van"], correct:"C" },
+  { id:21, type:"mc", q:"Welke vorm van het werkwoord 'worden' is juist? \"Morgen ________ er een besluit genomen.\"",
+    options:["word","wordt","worden","werd"], correct:"B" },
+  { id:22, type:"mc", q:"Wat betekent \"Iets met de mantel der liefde bedekken\"?",
+    options:["De fouten of gebreken van een ander opzettelijk verzwijgen of vergeven.","Iemand heel warm en hartelijk verwelkomen in een nieuw team.","Een geheim zakelijk voordeel geven aan een trouwe partner.","Iemand beschermen tegen terechte kritiek van buitenaf."], correct:"A" },
+  { id:23, type:"mc", q:"Wat is de juiste spelling?",
+    options:["onmiddellijk","onmiddelijk","onmidellijk","onmiddelijk"], correct:"A" },
+  { id:24, type:"mc", q:"Wat betekent de uitdrukking 'een blauwtje lopen' in de Nederlandse taal?",
+    options:["Een boete krijgen van iemand in een blauw uniform.","Afgewezen worden in de liefde.","Een blauwe plek oplopen tijdens een aanhouding.","Gezakt zijn voor de sporttest van de politieacademie."], correct:"B" },
+  { id:25, type:"mc", q:"Wat betekent het spreekwoord 'Het einde kroont het werk'?",
+    options:["Als je te snel werkt, maak je fouten aan het einde.","Je moet pas stoppen met werken als de koning daarvoor toestemming geeft.","Een goede voltooiing of een mooi resultaat is de mooiste beloning.","Alleen het laatste onderdeel van een project is belangrijk."], correct:"C" }
+];
+
 /* ============ STATE ============ */
 const CLASSES = ["ALPHA","BRAVO","CHARLIE","DELTA","ECHO","FOXTROT","GOLF","HOTEL","JULIETT","KILO","LIMA","MIKE"];
 let ME = { naam:"", klas:"", role:"student", uid:null };
-let QUESTIONS = [];          // {q, options:[a,b,c,d], correct:"A", type:"mc"|"short", answer:"" }
+let QUESTIONS = [];
+let STANDARD_SETS = {};   // { key: {naam, ts, count, questions} }
 let CURRENT_GAME = { activeQuestion: null, started:false, winner:null };
-let MY_CARD = [];            // 25 getallen (vraagnummers), volgorde random
-let MY_DONE = {};            // qid -> true
+let MY_CARD = [];
+let MY_DONE = {};
 let ALL_SCORES = {};
 
-/* ============ FIREBASE HELPERS ============ */
-function fbReady(fn){
-  if(window.fb) fn();
-  else window.addEventListener('firebase-ready', fn, {once:true});
+/* ============ HELPERS ============ */
+function toast(msg, err){
+  const t = document.createElement('div');
+  t.className = 'toast' + (err?' err':'');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(), 2600);
 }
+function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
 
-function saveQuestionSet(qs){
-  return window.fb.set(window.fb.ref(window.db, "bingo/questions"), qs);
-}
-function loadQuestionSet(){
-  return window.fb.get(window.fb.ref(window.db, "bingo/questions")).then(s=> s.val() || []);
-}
-function saveGame(g){
-  return window.fb.set(window.fb.ref(window.db, "bingo/game"), g);
-}
-function loadGame(){
-  return window.fb.get(window.fb.ref(window.db, "bingo/game")).then(s=> s.val() || {});
-}
-function saveCard(uid, card){
-  return window.fb.set(window.fb.ref(window.db, "bingo/cards/"+uid), card);
-}
-function saveProgress(uid, prog){
-  return window.fb.set(window.fb.ref(window.db, "bingo/progress/"+uid), prog);
-}
-function saveScore(uid, naam, klas, score){
-  return window.fb.set(window.fb.ref(window.db, "bingo/scores/"+uid), {naam, klas, score, ts:Date.now()});
-}
+/* ============ FIREBASE HELPERS ============ */
+const saveQuestionSet   = qs  => window.fb.set(window.fb.ref(window.db,"bingo/questions"), qs);
+const loadQuestionSet   = ()  => window.fb.get(window.fb.ref(window.db,"bingo/questions")).then(s=> s.val()||[]);
+const saveGame          = g   => window.fb.set(window.fb.ref(window.db,"bingo/game"), g);
+const loadGame          = ()  => window.fb.get(window.fb.ref(window.db,"bingo/game")).then(s=> s.val()||{});
+const saveCard          = (u,c)=> window.fb.set(window.fb.ref(window.db,"bingo/cards/"+u), c);
+const saveProgress      = (u,p)=> window.fb.set(window.fb.ref(window.db,"bingo/progress/"+u), p);
+const saveScore         = (u,n,k,s)=> window.fb.set(window.fb.ref(window.db,"bingo/scores/"+u), {naam:n, klas:k, score:s, ts:Date.now()});
+const loadStandardSets  = ()  => window.fb.get(window.fb.ref(window.db,"bingo/standardsets")).then(s=> s.val()||{});
+const saveStandardSet   = (key, obj) => window.fb.set(window.fb.ref(window.db,"bingo/standardsets/"+key), obj);
+const deleteStandardSet = (key) => window.fb.remove(window.fb.ref(window.db,"bingo/standardsets/"+key));
 
 /* ============ ROUTING ============ */
 function render(){
@@ -228,44 +271,43 @@ function renderLogin(){
 async function initData(){
   QUESTIONS = await loadQuestionSet();
   CURRENT_GAME = await loadGame();
+  STANDARD_SETS = await loadStandardSets();
 
   if(ME.role === "student"){
-    // Bestaande kaart of nieuwe maken
     const snap = await window.fb.get(window.fb.ref(window.db, "bingo/cards/"+ME.uid));
     if(snap.exists()) MY_CARD = snap.val();
-    else {
-      MY_CARD = makeCard();
-      await saveCard(ME.uid, MY_CARD);
-    }
+    else { MY_CARD = makeCard(); await saveCard(ME.uid, MY_CARD); }
     const p = await window.fb.get(window.fb.ref(window.db, "bingo/progress/"+ME.uid));
     MY_DONE = p.exists() ? p.val() : {};
   }
 
-  // Live listeners
-  window.fb.onValue(window.fb.ref(window.db, "bingo/game"), s=>{
+  window.fb.onValue(window.fb.ref(window.db,"bingo/game"), s=>{
     CURRENT_GAME = s.val() || {};
     if(ME.role==="student") renderStudent();
   });
-  window.fb.onValue(window.fb.ref(window.db, "bingo/scores"), s=>{
+  window.fb.onValue(window.fb.ref(window.db,"bingo/scores"), s=>{
     ALL_SCORES = s.val() || {};
     if(ME.role==="student") renderStudent();
     if(ME.role==="teacher") renderTeacher();
   });
-  window.fb.onValue(window.fb.ref(window.db, "bingo/questions"), s=>{
+  window.fb.onValue(window.fb.ref(window.db,"bingo/questions"), s=>{
     QUESTIONS = s.val() || [];
     if(ME.role==="teacher") renderTeacher();
   });
-  window.fb.onValue(window.fb.ref(window.db, "bingo/cards/"+ME.uid), s=>{
+  window.fb.onValue(window.fb.ref(window.db,"bingo/cards/"+ME.uid), s=>{
     if(s.exists() && ME.role==="student"){ MY_CARD = s.val(); renderStudent(); }
   });
-  window.fb.onValue(window.fb.ref(window.db, "bingo/progress/"+ME.uid), s=>{
+  window.fb.onValue(window.fb.ref(window.db,"bingo/progress/"+ME.uid), s=>{
     if(ME.role==="student"){ MY_DONE = s.val() || {}; renderStudent(); }
+  });
+  window.fb.onValue(window.fb.ref(window.db,"bingo/standardsets"), s=>{
+    STANDARD_SETS = s.val() || {};
+    if(ME.role==="teacher") renderTeacher();
   });
 }
 
 /* ============ BINGOKAART ============ */
 function makeCard(){
-  // 25 unieke getallen 1..25 in random volgorde (standaard bingo-indeling)
   const nums = Array.from({length:25},(_,i)=>i+1);
   for(let i=nums.length-1;i>0;i--){
     const j = Math.floor(Math.random()*(i+1));
@@ -273,15 +315,9 @@ function makeCard(){
   }
   return nums;
 }
-
 function hasBingo(done, card){
-  // 5x5 rooster
-  for(let r=0;r<5;r++){
-    if([0,1,2,3,4].every(c=> done[card[r*5+c]] )) return true;
-  }
-  for(let c=0;c<5;c++){
-    if([0,1,2,3,4].every(r=> done[card[r*5+c]] )) return true;
-  }
+  for(let r=0;r<5;r++) if([0,1,2,3,4].every(c=> done[card[r*5+c]] )) return true;
+  for(let c=0;c<5;c++) if([0,1,2,3,4].every(r=> done[card[r*5+c]] )) return true;
   return false;
 }
 
@@ -307,7 +343,6 @@ function renderStudent(){
       <ul class="lb" id="lb"></ul>
     </div>`;
 
-  // Grid
   const grid = document.getElementById('grid');
   MY_CARD.forEach((qid, idx)=>{
     const cell = document.createElement('div');
@@ -322,14 +357,13 @@ function renderStudent(){
     grid.appendChild(cell);
   });
 
-  // Leaderboard
   const lb = document.getElementById('lb');
   const arr = Object.values(ALL_SCORES).sort((a,b)=> b.score - a.score);
   if(!arr.length) lb.innerHTML = `<li class="small">Nog geen scores…</li>`;
   arr.forEach((s,i)=>{
     const li = document.createElement('li');
     if(s.naam === ME.naam && s.klas === ME.klas) li.classList.add('me');
-    li.innerHTML = `<span>${i+1}. ${s.naam} <span class="small">(${s.klas})</span></span>
+    li.innerHTML = `<span>${i+1}. ${escapeHtml(s.naam)} <span class="small">(${escapeHtml(s.klas)})</span></span>
                     <span class="pts">${s.score} pt</span>`;
     lb.appendChild(li);
   });
@@ -345,7 +379,7 @@ function openQuestion(qid){
   if(q.type === 'mc'){
     optsHtml = q.options.map((o,i)=>{
       const letter = String.fromCharCode(65+i);
-      return `<label class="opt"><input type="radio" name="ans" value="${letter}">${letter}. ${o}</label>`;
+      return `<label class="opt"><input type="radio" name="ans" value="${letter}">${letter}. ${escapeHtml(o)}</label>`;
     }).join('');
   } else {
     optsHtml = `<input id="shortAns" placeholder="Typ je antwoord…">`;
@@ -353,7 +387,7 @@ function openQuestion(qid){
   bg.innerHTML = `
     <div class="modal">
       <h3>Vraag ${qid}</h3>
-      <p>${q.q}</p>
+      <p>${escapeHtml(q.q)}</p>
       ${optsHtml}
       <div class="row" style="margin-top:16px;">
         <button class="ok" id="btnSubmit">Insturen</button>
@@ -385,7 +419,6 @@ function openQuestion(qid){
       await saveScore(ME.uid, ME.naam, ME.klas, score);
       bg.remove();
       celebrate(qid);
-      // Bingo?
       if(hasBingo(MY_DONE, MY_CARD)){
         await declareWinner();
       }
@@ -439,7 +472,6 @@ function drawConfetti(){
 
 /* ============ WINNAAR ============ */
 async function declareWinner(){
-  // Alleen de eerste wint
   const res = await window.fb.runTransaction(window.fb.ref(window.db, "bingo/game/winner"), cur=>{
     if(cur) return cur;
     return {naam:ME.naam, klas:ME.klas, uid:ME.uid, ts:Date.now()};
@@ -447,19 +479,17 @@ async function declareWinner(){
   const w = res.snapshot.val();
   if(w && w.uid === ME.uid) showWin();
 }
-
 function showWin(){
   const overlay = document.createElement('div');
   overlay.className = 'win';
   overlay.innerHTML = `
     <div class="box">
       <h2>🏆 BINGO! 🏆</h2>
-      <p style="font-size:1.2rem;">Gefeliciteerd <b>${ME.naam}</b> uit klas ${ME.klas}!</p>
+      <p style="font-size:1.2rem;">Gefeliciteerd <b>${escapeHtml(ME.naam)}</b> uit klas ${escapeHtml(ME.klas)}!</p>
       <p>Jij hebt als eerste de hele bingokaart voltooid!</p>
       <button class="acc" onclick="this.closest('.win').remove()">Sluiten</button>
     </div>`;
   document.body.appendChild(overlay);
-  // Spectaculaire confetti-regens
   let count = 0;
   const iv = setInterval(()=>{
     confettiBurst(80, {x:Math.random()*innerWidth, y:-20});
@@ -470,17 +500,14 @@ function showWin(){
 /* ============ DOCENT UI ============ */
 function renderTeacher(){
   const app = document.getElementById('app');
-  const activeQ = CURRENT_GAME.activeQuestion;
-  const winner  = CURRENT_GAME.winner;
-
   app.innerHTML = `
     <div class="tabs">
       <button class="active" data-tab="game">🎮 Spel</button>
       <button data-tab="questions">📝 Vragen</button>
+      <button data-tab="sets">📚 Standaardsets</button>
       <button data-tab="scores">🏆 Scores</button>
     </div>
     <div id="tab-content"></div>`;
-
   app.querySelectorAll('.tabs button').forEach(b=>{
     b.onclick = ()=>{
       app.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('active'));
@@ -493,34 +520,34 @@ function renderTeacher(){
 
 function renderTab(tab){
   const c = document.getElementById('tab-content');
-  if(tab === 'game') return renderGameTab(c);
+  if(tab === 'game')      return renderGameTab(c);
   if(tab === 'questions') return renderQuestionsTab(c);
-  if(tab === 'scores') return renderScoresTab(c);
+  if(tab === 'sets')      return renderSetsTab(c);
+  if(tab === 'scores')    return renderScoresTab(c);
 }
 
 function renderGameTab(c){
   const activeQ = CURRENT_GAME.activeQuestion;
   const winner = CURRENT_GAME.winner;
-  const startBtn = CURRENT_GAME.started ? 
+  const startBtn = CURRENT_GAME.started ?
       `<button class="danger" id="btnStop">⏹ Stop spel</button>` :
       `<button class="ok" id="btnStart">▶ Start spel</button>`;
-  const winnerHtml = winner ? `<div class="panel" style="border:2px solid var(--acc);">
-      🏆 Winnaar: <b>${winner.naam}</b> (${winner.klas})</div>` : '';
+  const winnerHtml = winner ? `<div class="panel" style="border:2px solid var(--acc);margin-top:12px;">
+      🏆 Winnaar: <b>${escapeHtml(winner.naam)}</b> (${escapeHtml(winner.klas)})</div>` : '';
 
   c.innerHTML = `
     <div class="panel">
       <h2>Spelbesturing</h2>
       <p class="small">Aantal vragen in database: <b>${QUESTIONS.length}</b></p>
-      ${winnerHtml}
-      <div class="row">
-        ${startBtn}
+      <div class="row">${startBtn}
         <button class="ghost" id="btnReset">♻ Reset kaarten & spel</button>
       </div>
+      ${winnerHtml}
       <hr style="border-color:#2a3054;margin:18px 0;">
       <h3>Actieve vraag</h3>
       <div class="row">
         <select id="selQ">
-          ${QUESTIONS.map(q=>`<option value="${q.id}" ${activeQ===q.id?'selected':''}>Vraag ${q.id}: ${q.q.substring(0,50)}${q.q.length>50?'…':''}</option>`).join('')}
+          ${QUESTIONS.map(q=>`<option value="${q.id}" ${activeQ===q.id?'selected':''}>Vraag ${q.id}: ${escapeHtml((q.q||'').substring(0,50))}${q.q.length>50?'…':''}</option>`).join('')}
         </select>
         <button class="ok" id="btnShow">Toon vraag</button>
         <button class="ghost" id="btnHide">Verberg</button>
@@ -552,6 +579,7 @@ function renderGameTab(c){
     toast("Alles gereset");
   };
   document.getElementById('btnShow').onclick = async ()=>{
+    if(!QUESTIONS.length) return toast("Voer eerst vragen in", true);
     const qid = parseInt(document.getElementById('selQ').value,10);
     await saveGame({...CURRENT_GAME, activeQuestion:qid, started:true});
     toast("Vraag "+qid+" getoond");
@@ -560,7 +588,6 @@ function renderGameTab(c){
     await saveGame({...CURRENT_GAME, activeQuestion:null});
   };
 
-  // Live progress
   window.fb.onValue(window.fb.ref(window.db, "bingo/progress"), snap=>{
     const data = snap.val() || {};
     const el = document.getElementById('liveProgress');
@@ -571,7 +598,7 @@ function renderGameTab(c){
     }).sort((a,b)=> b.count - a.count);
     el.innerHTML = entries.length ? entries.map(e=>
       `<div style="padding:6px 0;border-bottom:1px solid #2a3054;">
-        <b>${e.naam}</b> — ${e.count}/25
+        <b>${escapeHtml(e.naam)}</b> — ${e.count}/25
         <div style="height:6px;background:#2a3054;border-radius:3px;margin-top:4px;">
           <div style="height:6px;width:${(e.count/25*100)}%;background:linear-gradient(90deg,#4a90e2,#2ecc71);border-radius:3px;"></div>
         </div>
@@ -585,12 +612,13 @@ function renderQuestionsTab(c){
     <div class="panel">
       <h2>Vragen invoeren</h2>
       <p class="small">Voer hier alle vragen in. Kies per vraag het type (multiple choice of kort antwoord).</p>
-      <div id="editor"></div>
       <div class="row">
+        <button class="acc" id="btnSeed">⚡ Laad standaardset (25 vragen)</button>
         <button class="ghost" id="btnAdd">+ Vraag toevoegen</button>
         <button class="ok" id="btnSave">💾 Opslaan in database</button>
         <button class="danger" id="btnClear">🗑 Alles wissen</button>
       </div>
+      <div id="editor" style="margin-top:16px;"></div>
       <p class="small" id="status"></p>
     </div>`;
   const editor = document.getElementById('editor');
@@ -626,7 +654,6 @@ function renderQuestionsTab(c){
         </div>`;
     }).join('');
 
-    // listeners
     editor.querySelectorAll('.qText').forEach(el=> el.oninput = e=>{
       draft[e.target.dataset.i].q = e.target.value;
     });
@@ -650,8 +677,140 @@ function renderQuestionsTab(c){
   }
   draw();
 
+  document.getElementById('btnSeed').onclick = async ()=>{
+    if(!confirm("Dit vervangt de huidige editor-inhoud door de standaardset van 25 vragen. Doorgaan?")) return;
+    draft = JSON.parse(JSON.stringify(SEED_SET));
+    draw();
+    document.getElementById('status').textContent = "Standaardset geladen in editor. Klik op 'Opslaan in database' om te bevestigen.";
+  };
   document.getElementById('btnAdd').onclick = ()=>{
     draft.push(newQuestion(draft.length+1));
     draw();
   };
-  document.getElementById('btnSave').onclick
+  document.getElementById('btnSave').onclick = async ()=>{
+    for(const q of draft){
+      if(!q.q.trim()) return toast("Vul alle vraagstellingen in", true);
+      if(q.type==='mc'){
+        if(q.options.some(o=>!o.trim())) return toast("Vul alle MC-opties in", true);
+      } else {
+        if(!q.answer || !q.answer.trim()) return toast("Vul het juiste korte antwoord in", true);
+      }
+    }
+    draft.forEach((q,i)=> q.id = i+1);
+    await saveQuestionSet(draft);
+    QUESTIONS = draft;
+    document.getElementById('status').textContent = "✔ Opgeslagen in database ("+draft.length+" vragen)";
+    toast("Vragen opgeslagen!");
+  };
+  document.getElementById('btnClear').onclick = async ()=>{
+    if(!confirm("Alle vragen uit de database verwijderen?")) return;
+    await saveQuestionSet([]);
+    draft = [newQuestion(1)];
+    draw();
+    toast("Database leeggemaakt");
+  };
+}
+
+/* ---- Standaardsets ---- */
+function renderSetsTab(c){
+  const keys = Object.keys(STANDARD_SETS).sort((a,b)=> (STANDARD_SETS[b].ts||0) - (STANDARD_SETS[a].ts||0));
+  c.innerHTML = `
+    <div class="panel">
+      <h2>📚 Standaardsets</h2>
+      <p class="small">Sla de huidige vragenset op als standaardset, of laad een eerder opgeslagen set in de editor.</p>
+      <div class="row">
+        <input id="setNaam" placeholder="Naam van de set (bv. 'Bingo 2026 - versie 1')">
+        <button class="ok" id="btnSaveSet">💾 Huidige vragenset opslaan als standaardset</button>
+      </div>
+      <div class="row">
+        <button class="acc" id="btnSeedSet">⚡ Seed de originele 25-vragenset</button>
+      </div>
+      <hr style="border-color:#2a3054;margin:18px 0;">
+      <h3>Opgeslagen sets (${keys.length})</h3>
+      <div id="setsList"></div>
+    </div>`;
+  const list = document.getElementById('setsList');
+  if(!keys.length){
+    list.innerHTML = `<p class="small"><i>Nog geen standaardsets opgeslagen.</i></p>`;
+  } else {
+    list.innerHTML = keys.map(k=>{
+      const s = STANDARD_SETS[k];
+      return `<div class="set-item">
+        <div>
+          <b>${escapeHtml(s.naam || k)}</b>
+          <div class="meta">${(s.questions||[]).length} vragen • opgeslagen ${new Date(s.ts||0).toLocaleString('nl-NL')}</div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="ok loadSet" data-key="${k}">📥 Laden in editor</button>
+          <button class="ghost loadDirect" data-key="${k}">🚀 Direct activeren</button>
+          <button class="danger delSet" data-key="${k}">🗑</button>
+        </div>
+      </div>`;
+    }).join('');
+    list.querySelectorAll('.loadSet').forEach(b=> b.onclick = async ()=>{
+      const s = STANDARD_SETS[b.dataset.key];
+      if(!s) return;
+      await saveQuestionSet(s.questions||[]);
+      QUESTIONS = s.questions||[];
+      toast(`Set "${s.naam}" geladen in database`);
+    });
+    list.querySelectorAll('.loadDirect').forEach(b=> b.onclick = async ()=>{
+      const s = STANDARD_SETS[b.dataset.key];
+      if(!s) return;
+      await saveQuestionSet(s.questions||[]);
+      QUESTIONS = s.questions||[];
+      await saveGame({ started:true, activeQuestion:null, winner:null });
+      toast(`Set "${s.naam}" direct geactiveerd`);
+    });
+    list.querySelectorAll('.delSet').forEach(b=> b.onclick = async ()=>{
+      if(!confirm("Deze standaardset verwijderen?")) return;
+      await deleteStandardSet(b.dataset.key);
+      toast("Set verwijderd");
+    });
+  }
+
+  document.getElementById('btnSaveSet').onclick = async ()=>{
+    if(!QUESTIONS.length) return toast("Er staan geen vragen in de database om op te slaan", true);
+    const naam = (document.getElementById('setNaam').value || '').trim() ||
+                 ("Set " + new Date().toLocaleString('nl-NL'));
+    const key = "set_" + Date.now();
+    await saveStandardSet(key, { naam, ts:Date.now(), questions:QUESTIONS });
+    document.getElementById('setNaam').value = '';
+    toast(`Standaardset "${naam}" opgeslagen`);
+  };
+  document.getElementById('btnSeedSet').onclick = async ()=>{
+    if(!confirm("De originele 25-vragenset als standaardset toevoegen?")) return;
+    const key = "seed_" + Date.now();
+    await saveStandardSet(key, { naam:"Standaardset Basistaalvaardigheid (25)", ts:Date.now(), questions:SEED_SET });
+    toast("Standaardset toegevoegd");
+  };
+}
+
+/* ---- Scores ---- */
+function renderScoresTab(c){
+  c.innerHTML = `
+    <div class="panel">
+      <h2>🏆 Leaderboard</h2>
+      <ul class="lb" id="lbT"></ul>
+      <div class="row" style="margin-top:14px;">
+        <button class="danger" id="btnResetScores">🗑 Reset scores</button>
+      </div>
+    </div>`;
+  const lb = document.getElementById('lbT');
+  const arr = Object.values(ALL_SCORES).sort((a,b)=> b.score - a.score);
+  lb.innerHTML = arr.length ? arr.map((s,i)=>
+    `<li><span>${i+1}. ${escapeHtml(s.naam)} <span class="small">(${escapeHtml(s.klas)})</span></span>
+     <span class="pts">${s.score} pt</span></li>`).join('') :
+    `<li class="small">Nog geen scores…</li>`;
+  document.getElementById('btnResetScores').onclick = async ()=>{
+    if(!confirm("Alle scores wissen?")) return;
+    await window.fb.set(window.fb.ref(window.db,"bingo/scores"), null);
+    toast("Scores gereset");
+  };
+}
+
+/* ============ START ============ */
+if(window.fb) render(); else window.addEventListener('firebase-ready', render, {once:true});
+</script>
+</body>
+</html>
