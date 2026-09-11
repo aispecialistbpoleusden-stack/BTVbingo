@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bingo BTV</title>
+<title>Bingo Basistaalvaardigheid</title>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getDatabase, ref, set, get, update, onValue, push, child, runTransaction, remove }
@@ -127,8 +127,11 @@
 
   .set-item{display:flex;justify-content:space-between;align-items:center;
     padding:10px 14px;background:#1a1f38;border-radius:10px;margin-bottom:8px;
-    border-left:4px solid var(--blue);}
+    border-left:4px solid var(--blue);flex-wrap:wrap;gap:8px;}
   .set-item .meta{font-size:.85rem;color:#aab;}
+
+  #debug{position:fixed;bottom:0;left:0;right:0;max-height:120px;overflow:auto;
+    background:#111;color:#f88;font-size:11px;padding:6px 10px;display:none;z-index:999;}
 
   @media(max-width:600px){
     .bingo-grid{gap:6px;}
@@ -139,12 +142,13 @@
 <body>
 
 <header>
-  <h1>🎯 Bingo <span>BTV</span></h1>
+  <h1>🎯 Bingo <span>Basistaalvaardigheid</span></h1>
   <div class="badge" id="who">Niet ingelogd</div>
 </header>
 
 <div class="container" id="app"></div>
 <canvas id="confetti"></canvas>
+<div id="debug"></div>
 
 <script>
 /* ============ STANDAARDSET (seed) ============ */
@@ -203,13 +207,15 @@ const SEED_SET = [
 
 /* ============ STATE ============ */
 const CLASSES = ["ALPHA","BRAVO","CHARLIE","DELTA","ECHO","FOXTROT","GOLF","HOTEL","JULIETT","KILO","LIMA","MIKE"];
-let ME = { naam:"", klas:"", role:"student", uid:null };
+let ME = { naam:"", klas:"", role:null, uid:null };
 let QUESTIONS = [];
-let STANDARD_SETS = {};   // { key: {naam, ts, count, questions} }
+let STANDARD_SETS = {};
 let CURRENT_GAME = { activeQuestion: null, started:false, winner:null };
 let MY_CARD = [];
 let MY_DONE = {};
 let ALL_SCORES = {};
+let listenersBound = false;
+let booted = false;
 
 /* ============ HELPERS ============ */
 function toast(msg, err){
@@ -220,6 +226,13 @@ function toast(msg, err){
   setTimeout(()=>t.remove(), 2600);
 }
 function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+function dbg(msg){
+  const el = document.getElementById('debug');
+  if(!el) return;
+  el.style.display = 'block';
+  el.textContent += msg + "\n";
+}
+window.addEventListener('error', e=> dbg('ERR: '+e.message));
 
 /* ============ FIREBASE HELPERS ============ */
 const saveQuestionSet   = qs  => window.fb.set(window.fb.ref(window.db,"bingo/questions"), qs);
@@ -235,9 +248,18 @@ const deleteStandardSet = (key) => window.fb.remove(window.fb.ref(window.db,"bin
 
 /* ============ ROUTING ============ */
 function render(){
-  if(!ME.uid){ renderLogin(); return; }
-  if(ME.role === "teacher"){ renderTeacher(); return; }
-  renderStudent();
+  try{
+    if(!ME.uid){ renderLogin(); return; }
+    if(ME.role === "teacher"){ renderTeacher(); return; }
+    renderStudent();
+  }catch(err){
+    dbg('RENDER CRASH: '+err.message);
+    console.error(err);
+    // Toon nooit het inlogscherm als er al ingelogd is — toon foutmelding
+    document.getElementById('app').innerHTML =
+      `<div class="panel"><h2>Fout bij weergeven</h2><p class="small">${escapeHtml(err.message)}</p>
+       <button class="ghost" onclick="location.reload()">Herladen</button></div>`;
+  }
 }
 
 /* ============ LOGIN ============ */
@@ -262,48 +284,66 @@ function renderLogin(){
     ME.role = klas === "DOCENT" ? "teacher" : "student";
     ME.uid  = (ME.role==="teacher" ? "docent_" : klas+"_") + naam.toLowerCase().replace(/\s+/g,'_');
     document.getElementById('who').textContent = (ME.role==="teacher"?"👩‍🏫 ":"🎓 ") + naam + " • " + klas;
-    await initData();
+    try{
+      await initData();
+    }catch(err){
+      dbg('INIT CRASH: '+err.message);
+      console.error(err);
+      toast("Kon niet inloggen: "+err.message, true);
+      return;
+    }
     render();
   };
 }
 
 /* ============ DATA INIT ============ */
 async function initData(){
-  QUESTIONS = await loadQuestionSet();
-  CURRENT_GAME = await loadGame();
+  // Vragen & game eenmalig ophalen
+  QUESTIONS   = await loadQuestionSet();
+  CURRENT_GAME= await loadGame();
   STANDARD_SETS = await loadStandardSets();
+  dbg('Data geladen. Vragen: '+QUESTIONS.length);
 
+  // Kaart & voortgang voor student
   if(ME.role === "student"){
-    const snap = await window.fb.get(window.fb.ref(window.db, "bingo/cards/"+ME.uid));
-    if(snap.exists()) MY_CARD = snap.val();
-    else { MY_CARD = makeCard(); await saveCard(ME.uid, MY_CARD); }
-    const p = await window.fb.get(window.fb.ref(window.db, "bingo/progress/"+ME.uid));
-    MY_DONE = p.exists() ? p.val() : {};
+    try{
+      const snap = await window.fb.get(window.fb.ref(window.db, "bingo/cards/"+ME.uid));
+      if(snap.exists()) MY_CARD = snap.val();
+      else { MY_CARD = makeCard(); await saveCard(ME.uid, MY_CARD); }
+      const p = await window.fb.get(window.fb.ref(window.db, "bingo/progress/"+ME.uid));
+      MY_DONE = p.exists() ? p.val() : {};
+      dbg('Kaart: '+JSON.stringify(MY_CARD));
+    }catch(err){ dbg('KAART FOUT: '+err.message); }
   }
+
+  // Listeners slechts één keer koppelen
+  if(listenersBound) return;
+  listenersBound = true;
 
   window.fb.onValue(window.fb.ref(window.db,"bingo/game"), s=>{
     CURRENT_GAME = s.val() || {};
-    if(ME.role==="student") renderStudent();
+    if(ME.uid && ME.role==="student") render();
   });
   window.fb.onValue(window.fb.ref(window.db,"bingo/scores"), s=>{
     ALL_SCORES = s.val() || {};
-    if(ME.role==="student") renderStudent();
-    if(ME.role==="teacher") renderTeacher();
+    if(ME.uid) render();
   });
   window.fb.onValue(window.fb.ref(window.db,"bingo/questions"), s=>{
     QUESTIONS = s.val() || [];
-    if(ME.role==="teacher") renderTeacher();
-  });
-  window.fb.onValue(window.fb.ref(window.db,"bingo/cards/"+ME.uid), s=>{
-    if(s.exists() && ME.role==="student"){ MY_CARD = s.val(); renderStudent(); }
-  });
-  window.fb.onValue(window.fb.ref(window.db,"bingo/progress/"+ME.uid), s=>{
-    if(ME.role==="student"){ MY_DONE = s.val() || {}; renderStudent(); }
+    if(ME.uid && ME.role==="teacher") render();
   });
   window.fb.onValue(window.fb.ref(window.db,"bingo/standardsets"), s=>{
     STANDARD_SETS = s.val() || {};
-    if(ME.role==="teacher") renderTeacher();
+    if(ME.uid && ME.role==="teacher") render();
   });
+  if(ME.role === "student"){
+    window.fb.onValue(window.fb.ref(window.db,"bingo/cards/"+ME.uid), s=>{
+      if(s.exists() && ME.uid){ MY_CARD = s.val(); render(); }
+    });
+    window.fb.onValue(window.fb.ref(window.db,"bingo/progress/"+ME.uid), s=>{
+      if(ME.uid){ MY_DONE = s.val() || {}; render(); }
+    });
+  }
 }
 
 /* ============ BINGOKAART ============ */
@@ -431,7 +471,7 @@ function openQuestion(qid){
 function celebrate(qid){
   toast(`🎉 Vraag ${qid} goed!`);
   confettiBurst(120);
-  renderStudent();
+  // render() wordt al getriggerd door onValue op progress
 }
 
 /* ============ CONFETTI ============ */
@@ -717,7 +757,7 @@ function renderSetsTab(c){
   c.innerHTML = `
     <div class="panel">
       <h2>📚 Standaardsets</h2>
-      <p class="small">Sla de huidige vragenset op als standaardset, of laad een eerder opgeslagen set in de editor.</p>
+      <p class="small">Sla de huidige vragenset op als standaardset, of laad een eerder opgeslagen set.</p>
       <div class="row">
         <input id="setNaam" placeholder="Naam van de set (bv. 'Bingo 2026 - versie 1')">
         <button class="ok" id="btnSaveSet">💾 Huidige vragenset opslaan als standaardset</button>
@@ -740,7 +780,7 @@ function renderSetsTab(c){
           <b>${escapeHtml(s.naam || k)}</b>
           <div class="meta">${(s.questions||[]).length} vragen • opgeslagen ${new Date(s.ts||0).toLocaleString('nl-NL')}</div>
         </div>
-        <div style="display:flex;gap:8px;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="ok loadSet" data-key="${k}">📥 Laden in editor</button>
           <button class="ghost loadDirect" data-key="${k}">🚀 Direct activeren</button>
           <button class="danger delSet" data-key="${k}">🗑</button>
@@ -781,7 +821,7 @@ function renderSetsTab(c){
   document.getElementById('btnSeedSet').onclick = async ()=>{
     if(!confirm("De originele 25-vragenset als standaardset toevoegen?")) return;
     const key = "seed_" + Date.now();
-    await saveStandardSet(key, { naam:"Standaardset BTV (25)", ts:Date.now(), questions:SEED_SET });
+    await saveStandardSet(key, { naam:"Standaardset Basistaalvaardigheid (25)", ts:Date.now(), questions:SEED_SET });
     toast("Standaardset toegevoegd");
   };
 }
