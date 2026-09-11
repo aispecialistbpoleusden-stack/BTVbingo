@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bingo Basistaalvaardigheid</title>
+<title>Bingo BTV</title>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getDatabase, ref, set, get, update, onValue, push, child, runTransaction, remove }
@@ -180,7 +180,7 @@
 <body>
 
 <header>
-  <h1>🎯 Bingo <span>Basistaalvaardigheid</span></h1>
+  <h1>🎯 Bingo <span>BTV</span></h1>
   <div class="badge" id="who">Niet ingelogd</div>
 </header>
 
@@ -893,7 +893,7 @@ function renderSetsTab(c){
   document.getElementById('btnSeedSet').onclick = async ()=>{
     if(!confirm("De originele 25-vragenset als standaardset toevoegen?")) return;
     const key = "seed_" + Date.now();
-    await saveStandardSet(key, { naam:"Standaardset Basistaalvaardigheid (25)", ts:Date.now(), questions:SEED_SET });
+    await saveStandardSet(key, { naam:"Standaardset BTV (25)", ts:Date.now(), questions:SEED_SET });
     toast("Standaardset toegevoegd");
   };
 }
