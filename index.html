@@ -643,8 +643,19 @@ function renderGameTab(c){
       ${activeHtml}
       ${winnerHtml}
       <hr style="border-color:#2a3054;margin:18px 0;">
+      <h3 style="margin-top:0;">🛑 Spel beëindigen</h3>
+      <p class="small">Wist de live voortgang, scores, winnaar, actieve vraag en tombola.
+        Kaarten en vragen blijven bewaard — klaar voor een nieuwe ronde.</p>
       <div class="row">
-        <button class="ghost" id="btnReset">♻ Reset kaarten & spel (alles)</button>
+        <button class="danger" id="btnEndGame" style="font-size:1.05rem;padding:14px 22px;">
+          🛑 Beëindig spel &amp; wis live voortgang
+        </button>
+      </div>
+      <hr style="border-color:#2a3054;margin:18px 0;">
+      <h3 style="margin-top:0;">⚠️ Volledige reset</h3>
+      <p class="small">Wist óók alle kaarten — studenten krijgen bij hun volgende login een compleet nieuwe kaart.</p>
+      <div class="row">
+        <button class="ghost" id="btnReset">♻ Reset kaarten &amp; spel (alles)</button>
       </div>
       <p class="small">Getrokken: ${drawn.length ? drawn.join(', ') : '—'}</p>
     </div>
@@ -691,8 +702,18 @@ function renderGameTab(c){
     toast("Tombola gereset — alle vragen weer beschikbaar");
   };
 
+  // 🛑 BEËINDIG SPEL — wist live voortgang + scores + winnaar + actieve vraag + tombola
+  document.getElementById('btnEndGame').onclick = async ()=>{
+    if(!confirm("Spel beëindigen?\n\nDit wist:\n• Live voortgang van alle studenten\n• Alle scores\n• De winnaar\n• De actieve vraag\n• De tombola\n\nKaarten en vragen blijven bewaard.")) return;
+    await window.fb.set(window.fb.ref(window.db, "bingo/progress"), null);
+    await window.fb.set(window.fb.ref(window.db, "bingo/scores"), null);
+    await saveGame({ started:false, activeQuestion:null, winner:null, drawnQuestions:[] });
+    toast("🛑 Spel beëindigd — klaar voor een nieuwe ronde");
+  };
+
+  // ⚠️ VOLLEDIGE RESET — wist ook alle kaarten
   document.getElementById('btnReset').onclick = async ()=>{
-    if(!confirm("Reset ALLES? Kaarten, voortgang, scores, winnaar en tombola worden gewist.")) return;
+    if(!confirm("Reset ALLES?\n\nDit wist:\n• Alle kaarten (studenten krijgen nieuwe bij volgende login)\n• Live voortgang\n• Alle scores\n• De winnaar\n• De tombola")) return;
     await window.fb.set(window.fb.ref(window.db, "bingo/cards"), null);
     await window.fb.set(window.fb.ref(window.db, "bingo/progress"), null);
     await window.fb.set(window.fb.ref(window.db, "bingo/scores"), null);
@@ -717,7 +738,6 @@ function renderGameTab(c){
       </div>`).join('') : '<i>Nog geen voortgang…</i>';
   });
 }
-
 /* ---- Vragenbeheer ---- */
 function renderQuestionsTab(c){
   c.innerHTML = `
