@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bingo Basistaalvaardigheid</title>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getDatabase, ref, set, get, update, onValue, push, child, runTransaction }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDLvrYtECW99o3AdajJvAlyiptgbEQf6F0",
+    authDomain: "gamification-152c3.firebaseapp.com",
+    projectId: "gamification-152c3",
+    storageBucket: "gamification-152c3.firebasestorage.app",
+    messagingSenderId: "924887177360",
+    appId: "1:924887177360:web:49c5439bfb41e07418a015",
+    measurementId: "G-S74818TEVW"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db  = getDatabase(app);
+  window.db = db;
+
+  // Expose Firebase helpers op window voor gebruik in <script>
+  window.fb = { ref, set, get, update, onValue, push, child, runTransaction };
+  window.dispatchEvent(new Event('firebase-ready'));
+</script>
+<style>
+  :root{
+    --bg:#0f1220; --bg2:#1a1f38; --acc:#ffd166; --ok:#2ecc71;
+    --bad:#e74c3c; --blue:#4a90e2; --card:#232a4d; --txt:#eef2ff;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;font-family:'Segoe UI',system-ui,sans-serif;
+    background:radial-gradient(1200px 600px at 20% -10%,#2b3266,transparent),
+               radial-gradient(1000px 500px at 110% 110%,#3a1f66,transparent),
+               var(--bg);
+    color:var(--txt);min-height:100vh;
+  }
+  header{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:14px 22px;background:rgba(0,0,0,.35);backdrop-filter:blur(8px);
+    border-bottom:1px solid #333a66;position:sticky;top:0;z-index:50;
+  }
+  header h1{margin:0;font-size:1.15rem;letter-spacing:.5px;}
+  header h1 span{color:var(--acc);}
+  .badge{background:var(--blue);padding:5px 12px;border-radius:20px;font-size:.85rem;}
+  .container{max-width:1200px;margin:0 auto;padding:22px;}
+
+  /* Login */
+  .login-wrap{display:flex;flex-direction:column;gap:14px;max-width:420px;margin:60px auto;
+    background:var(--card);padding:28px;border-radius:18px;box-shadow:0 20px 60px rgba(0,0,0,.5);}
+  .login-wrap h2{margin:0 0 8px;}
+  input,select,textarea,button{font:inherit;}
+  input,select,textarea{
+    padding:11px 14px;border-radius:10px;border:1px solid #3a4270;
+    background:#141830;color:var(--txt);outline:none;width:100%;
+  }
+  input:focus,select:focus{border-color:var(--blue);}
+  button{
+    padding:11px 18px;border:none;border-radius:10px;cursor:pointer;
+    background:linear-gradient(135deg,#4a90e2,#7b5cff);color:#fff;font-weight:600;
+    transition:transform .12s ease,filter .2s;
+  }
+  button:hover{transform:translateY(-1px);filter:brightness(1.1);}
+  button.ghost{background:#2a3054;}
+  button.ok{background:linear-gradient(135deg,#2ecc71,#27ae60);}
+  button.danger{background:linear-gradient(135deg,#e74c3c,#c0392b);}
+  button.acc{background:linear-gradient(135deg,#ffd166,#f39c12);color:#222;}
+
+  /* Kaart */
+  .bingo-grid{
+    display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:18px;
+  }
+  .cell{
+    aspect-ratio:1/1;background:var(--card);border-radius:14px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    font-size:1.6rem;font-weight:700;cursor:pointer;border:2px solid transparent;
+    position:relative;transition:.2s;padding:6px;text-align:center;
+  }
+  .cell:hover{border-color:var(--blue);}
+  .cell.done{background:radial-gradient(circle at 50% 40%,#2ecc71,#0e7a3f);cursor:default;}
+  .cell.done::after{content:"✓";font-size:2rem;position:absolute;color:#fff;opacity:.9;}
+  .cell.done span{display:none;}
+  .cell.active{border-color:var(--acc);box-shadow:0 0 20px rgba(255,209,102,.5);}
+  .cell .qid{font-size:.7rem;color:#aab;position:absolute;top:6px;left:8px;}
+
+  /* Vraagmodal */
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;
+    align-items:center;justify-content:center;z-index:100;padding:18px;}
+  .modal{background:var(--bg2);border-radius:18px;padding:26px;max-width:640px;width:100%;
+    box-shadow:0 30px 80px rgba(0,0,0,.7);border:1px solid #3a4270;}
+  .modal h3{margin-top:0;color:var(--acc);}
+  .modal .opt{
+    display:block;margin:8px 0;padding:12px 14px;border-radius:10px;
+    background:#151a35;cursor:pointer;border:1px solid #2a3054;
+  }
+  .modal .opt:hover{border-color:var(--blue);}
+  .modal .opt input{margin-right:10px;width:auto;}
+
+  /* Docent */
+  .tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;}
+  .tabs button{background:#2a3054;}
+  .tabs button.active{background:linear-gradient(135deg,#4a90e2,#7b5cff);}
+  .panel{background:var(--card);border-radius:16px;padding:20px;}
+  .q-editor{border:1px solid #3a4270;border-radius:12px;padding:14px;margin-bottom:12px;background:#1a1f38;}
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0;}
+  .row > *{flex:1;min-width:120px;}
+  .small{font-size:.85rem;color:#aab;}
+
+  /* Leaderboard */
+  .lb{list-style:none;padding:0;margin:0;}
+  .lb li{display:flex;justify-content:space-between;padding:11px 14px;border-radius:10px;
+    background:#1a1f38;margin-bottom:8px;border-left:4px solid var(--blue);}
+  .lb li.me{border-left-color:var(--acc);background:#2a2640;}
+  .lb .pts{font-weight:700;color:var(--acc);}
+
+  /* Confetti */
+  #confetti{position:fixed;inset:0;pointer-events:none;z-index:200;}
+
+  /* Winnaar */
+  .win{position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;
+    justify-content:center;z-index:300;text-align:center;padding:20px;}
+  .win .box{background:linear-gradient(135deg,#2b1e5e,#3a1f66);padding:40px;border-radius:24px;
+    border:3px solid var(--acc);max-width:560px;box-shadow:0 0 80px rgba(255,209,102,.6);}
+  .win h2{font-size:2.4rem;margin:0 0 12px;background:linear-gradient(90deg,#ffd166,#ff7b54,#ffd166);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    animation:shine 2s infinite;}
+  @keyframes shine{0%{filter:brightness(1);}50%{filter:brightness(1.6);}100%{filter:brightness(1);}}
+
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+    background:#2ecc71;color:#04240f;padding:12px 22px;border-radius:30px;font-weight:700;
+    box-shadow:0 10px 30px rgba(0,0,0,.5);z-index:250;}
+  .toast.err{background:#e74c3c;color:#fff;}
+
+  @media(max-width:600px){
+    .bingo-grid{gap:6px;}
+    .cell{font-size:1.1rem;border-radius:10px;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🎯 Bingo <span>Basistaalvaardigheid</span></h1>
+  <div class="badge" id="who">Niet ingelogd</div>
+</header>
+
+<div class="container" id="app"></div>
+<canvas id="confetti"></canvas>
+
+<script>
+/* ============ STATE ============ */
+const CLASSES = ["ALPHA","BRAVO","CHARLIE","DELTA","ECHO","FOXTROT","GOLF","HOTEL","JULIETT","KILO","LIMA","MIKE"];
+let ME = { naam:"", klas:"", role:"student", uid:null };
+let QUESTIONS = [];          // {q, options:[a,b,c,d], correct:"A", type:"mc"|"short", answer:"" }
+let CURRENT_GAME = { activeQuestion: null, started:false, winner:null };
+let MY_CARD = [];            // 25 getallen (vraagnummers), volgorde random
+let MY_DONE = {};            // qid -> true
+let ALL_SCORES = {};
+
+/* ============ FIREBASE HELPERS ============ */
+function fbReady(fn){
+  if(window.fb) fn();
+  else window.addEventListener('firebase-ready', fn, {once:true});
+}
+
+function saveQuestionSet(qs){
+  return window.fb.set(window.fb.ref(window.db, "bingo/questions"), qs);
+}
+function loadQuestionSet(){
+  return window.fb.get(window.fb.ref(window.db, "bingo/questions")).then(s=> s.val() || []);
+}
+function saveGame(g){
+  return window.fb.set(window.fb.ref(window.db, "bingo/game"), g);
+}
+function loadGame(){
+  return window.fb.get(window.fb.ref(window.db, "bingo/game")).then(s=> s.val() || {});
+}
+function saveCard(uid, card){
+  return window.fb.set(window.fb.ref(window.db, "bingo/cards/"+uid), card);
+}
+function saveProgress(uid, prog){
+  return window.fb.set(window.fb.ref(window.db, "bingo/progress/"+uid), prog);
+}
+function saveScore(uid, naam, klas, score){
+  return window.fb.set(window.fb.ref(window.db, "bingo/scores/"+uid), {naam, klas, score, ts:Date.now()});
+}
+
+/* ============ ROUTING ============ */
+function render(){
+  if(!ME.uid){ renderLogin(); return; }
+  if(ME.role === "teacher"){ renderTeacher(); return; }
+  renderStudent();
+}
+
+/* ============ LOGIN ============ */
+function renderLogin(){
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <div class="login-wrap">
+      <h2>Inloggen</h2>
+      <p class="small">Kies je klas en vul je naam in. Docent? Kies "Docent".</p>
+      <select id="kls">
+        ${CLASSES.map(c=>`<option value="${c}">${c}</option>`).join('')}
+        <option value="DOCENT">Docent</option>
+      </select>
+      <input id="naam" placeholder="Jouw naam" autocomplete="off">
+      <button id="btnLogin">Inloggen</button>
+    </div>`;
+  document.getElementById('btnLogin').onclick = async ()=>{
+    const naam = document.getElementById('naam').value.trim();
+    const klas = document.getElementById('kls').value;
+    if(!naam) return toast("Vul je naam in", true);
+    ME.naam = naam; ME.klas = klas;
+    ME.role = klas === "DOCENT" ? "teacher" : "student";
+    ME.uid  = (ME.role==="teacher" ? "docent_" : klas+"_") + naam.toLowerCase().replace(/\s+/g,'_');
+    document.getElementById('who').textContent = (ME.role==="teacher"?"👩‍🏫 ":"🎓 ") + naam + " • " + klas;
+    await initData();
+    render();
+  };
+}
+
+/* ============ DATA INIT ============ */
+async function initData(){
+  QUESTIONS = await loadQuestionSet();
+  CURRENT_GAME = await loadGame();
+
+  if(ME.role === "student"){
+    // Bestaande kaart of nieuwe maken
+    const snap = await window.fb.get(window.fb.ref(window.db, "bingo/cards/"+ME.uid));
+    if(snap.exists()) MY_CARD = snap.val();
+    else {
+      MY_CARD = makeCard();
+      await saveCard(ME.uid, MY_CARD);
+    }
+    const p = await window.fb.get(window.fb.ref(window.db, "bingo/progress/"+ME.uid));
+    MY_DONE = p.exists() ? p.val() : {};
+  }
+
+  // Live listeners
+  window.fb.onValue(window.fb.ref(window.db, "bingo/game"), s=>{
+    CURRENT_GAME = s.val() || {};
+    if(ME.role==="student") renderStudent();
+  });
+  window.fb.onValue(window.fb.ref(window.db, "bingo/scores"), s=>{
+    ALL_SCORES = s.val() || {};
+    if(ME.role==="student") renderStudent();
+    if(ME.role==="teacher") renderTeacher();
+  });
+  window.fb.onValue(window.fb.ref(window.db, "bingo/questions"), s=>{
+    QUESTIONS = s.val() || [];
+    if(ME.role==="teacher") renderTeacher();
+  });
+  window.fb.onValue(window.fb.ref(window.db, "bingo/cards/"+ME.uid), s=>{
+    if(s.exists() && ME.role==="student"){ MY_CARD = s.val(); renderStudent(); }
+  });
+  window.fb.onValue(window.fb.ref(window.db, "bingo/progress/"+ME.uid), s=>{
+    if(ME.role==="student"){ MY_DONE = s.val() || {}; renderStudent(); }
+  });
+}
+
+/* ============ BINGOKAART ============ */
+function makeCard(){
+  // 25 unieke getallen 1..25 in random volgorde (standaard bingo-indeling)
+  const nums = Array.from({length:25},(_,i)=>i+1);
+  for(let i=nums.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [nums[i],nums[j]]=[nums[j],nums[i]];
+  }
+  return nums;
+}
+
+function hasBingo(done, card){
+  // 5x5 rooster
+  for(let r=0;r<5;r++){
+    if([0,1,2,3,4].every(c=> done[card[r*5+c]] )) return true;
+  }
+  for(let c=0;c<5;c++){
+    if([0,1,2,3,4].every(r=> done[card[r*5+c]] )) return true;
+  }
+  return false;
+}
+
+/* ============ STUDENT UI ============ */
+function renderStudent(){
+  const app = document.getElementById('app');
+  if(!QUESTIONS.length){
+    app.innerHTML = `<div class="panel"><h2>Wachten op vragen…</h2>
+      <p class="small">De docent heeft nog geen vragenset ingevoerd.</p></div>`;
+    return;
+  }
+  const doneCount = Object.keys(MY_DONE).length;
+  const activeQ = CURRENT_GAME.activeQuestion;
+
+  app.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+      <h2 style="margin:0;">Jouw bingokaart</h2>
+      <div class="badge">Voortgang: ${doneCount} / 25</div>
+    </div>
+    <div class="bingo-grid" id="grid"></div>
+    <div style="margin-top:24px;" class="panel">
+      <h3>🏆 Leaderboard</h3>
+      <ul class="lb" id="lb"></ul>
+    </div>`;
+
+  // Grid
+  const grid = document.getElementById('grid');
+  MY_CARD.forEach((qid, idx)=>{
+    const cell = document.createElement('div');
+    cell.className = 'cell' + (MY_DONE[qid] ? ' done':'');
+    if(activeQ === qid && !MY_DONE[qid]) cell.classList.add('active');
+    cell.innerHTML = `<span class="qid">#${idx+1}</span><span>${qid}</span>`;
+    cell.onclick = ()=>{
+      if(MY_DONE[qid]) return toast("Deze vraag heb je al goed!", true);
+      if(activeQ !== qid) return toast("Deze vraag is nog niet actief. Wacht op de docent.", true);
+      openQuestion(qid);
+    };
+    grid.appendChild(cell);
+  });
+
+  // Leaderboard
+  const lb = document.getElementById('lb');
+  const arr = Object.values(ALL_SCORES).sort((a,b)=> b.score - a.score);
+  if(!arr.length) lb.innerHTML = `<li class="small">Nog geen scores…</li>`;
+  arr.forEach((s,i)=>{
+    const li = document.createElement('li');
+    if(s.naam === ME.naam && s.klas === ME.klas) li.classList.add('me');
+    li.innerHTML = `<span>${i+1}. ${s.naam} <span class="small">(${s.klas})</span></span>
+                    <span class="pts">${s.score} pt</span>`;
+    lb.appendChild(li);
+  });
+}
+
+function openQuestion(qid){
+  const q = QUESTIONS.find(x=> x.id === qid);
+  if(!q) return toast("Vraag niet gevonden", true);
+
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  let optsHtml = '';
+  if(q.type === 'mc'){
+    optsHtml = q.options.map((o,i)=>{
+      const letter = String.fromCharCode(65+i);
+      return `<label class="opt"><input type="radio" name="ans" value="${letter}">${letter}. ${o}</label>`;
+    }).join('');
+  } else {
+    optsHtml = `<input id="shortAns" placeholder="Typ je antwoord…">`;
+  }
+  bg.innerHTML = `
+    <div class="modal">
+      <h3>Vraag ${qid}</h3>
+      <p>${q.q}</p>
+      ${optsHtml}
+      <div class="row" style="margin-top:16px;">
+        <button class="ok" id="btnSubmit">Insturen</button>
+        <button class="ghost" id="btnCancel">Annuleren</button>
+      </div>
+      <p class="small" id="fb"></p>
+    </div>`;
+  document.body.appendChild(bg);
+
+  document.getElementById('btnCancel').onclick = ()=> bg.remove();
+  document.getElementById('btnSubmit').onclick = async ()=>{
+    let given = '';
+    if(q.type === 'mc'){
+      const r = bg.querySelector('input[name=ans]:checked');
+      if(!r) return document.getElementById('fb').textContent = "Kies een antwoord.";
+      given = r.value;
+    } else {
+      given = (document.getElementById('shortAns').value || '').trim().toLowerCase();
+      if(!given) return document.getElementById('fb').textContent = "Typ een antwoord.";
+    }
+    let correct = false;
+    if(q.type === 'mc') correct = given.toUpperCase() === (q.correct||'').toUpperCase();
+    else correct = given === (q.answer||'').trim().toLowerCase();
+
+    if(correct){
+      MY_DONE[qid] = true;
+      await saveProgress(ME.uid, MY_DONE);
+      const score = Object.keys(MY_DONE).length * 10;
+      await saveScore(ME.uid, ME.naam, ME.klas, score);
+      bg.remove();
+      celebrate(qid);
+      // Bingo?
+      if(hasBingo(MY_DONE, MY_CARD)){
+        await declareWinner();
+      }
+    } else {
+      document.getElementById('fb').textContent = "❌ Helaas, dat is niet juist.";
+    }
+  };
+}
+
+function celebrate(qid){
+  toast(`🎉 Vraag ${qid} goed!`);
+  confettiBurst(120);
+  renderStudent();
+}
+
+/* ============ CONFETTI ============ */
+const canvas = document.getElementById('confetti');
+const ctx = canvas.getContext('2d');
+let particles = [];
+function resizeCanvas(){ canvas.width = innerWidth; canvas.height = innerHeight; }
+addEventListener('resize', resizeCanvas); resizeCanvas();
+
+function confettiBurst(n=120, origin={x:innerWidth/2,y:innerHeight/2}){
+  const colors = ['#ffd166','#ef476f','#06d6a0','#118ab2','#f78c6b','#a06cd5'];
+  for(let i=0;i<n;i++){
+    particles.push({
+      x: origin.x, y: origin.y,
+      vx: (Math.random()-0.5)*12,
+      vy: (Math.random()-1)*10 - 2,
+      size: 4+Math.random()*8,
+      color: colors[Math.floor(Math.random()*colors.length)],
+      rot: Math.random()*Math.PI, vr: (Math.random()-0.5)*0.3,
+      life: 90+Math.random()*60
+    });
+  }
+  if(!confettiLoop) confettiLoop = requestAnimationFrame(drawConfetti);
+}
+let confettiLoop = null;
+function drawConfetti(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  particles.forEach(p=>{
+    p.vy += 0.35; p.x += p.vx; p.y += p.vy; p.rot += p.vr; p.life--;
+    ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.rot);
+    ctx.fillStyle = p.color; ctx.fillRect(-p.size/2,-p.size/2,p.size,p.size*0.6);
+    ctx.restore();
+  });
+  particles = particles.filter(p=> p.life>0 && p.y < canvas.height+50);
+  if(particles.length) confettiLoop = requestAnimationFrame(drawConfetti);
+  else { confettiLoop = null; ctx.clearRect(0,0,canvas.width,canvas.height); }
+}
+
+/* ============ WINNAAR ============ */
+async function declareWinner(){
+  // Alleen de eerste wint
+  const res = await window.fb.runTransaction(window.fb.ref(window.db, "bingo/game/winner"), cur=>{
+    if(cur) return cur;
+    return {naam:ME.naam, klas:ME.klas, uid:ME.uid, ts:Date.now()};
+  });
+  const w = res.snapshot.val();
+  if(w && w.uid === ME.uid) showWin();
+}
+
+function showWin(){
+  const overlay = document.createElement('div');
+  overlay.className = 'win';
+  overlay.innerHTML = `
+    <div class="box">
+      <h2>🏆 BINGO! 🏆</h2>
+      <p style="font-size:1.2rem;">Gefeliciteerd <b>${ME.naam}</b> uit klas ${ME.klas}!</p>
+      <p>Jij hebt als eerste de hele bingokaart voltooid!</p>
+      <button class="acc" onclick="this.closest('.win').remove()">Sluiten</button>
+    </div>`;
+  document.body.appendChild(overlay);
+  // Spectaculaire confetti-regens
+  let count = 0;
+  const iv = setInterval(()=>{
+    confettiBurst(80, {x:Math.random()*innerWidth, y:-20});
+    if(++count > 15) clearInterval(iv);
+  }, 250);
+}
+
+/* ============ DOCENT UI ============ */
+function renderTeacher(){
+  const app = document.getElementById('app');
+  const activeQ = CURRENT_GAME.activeQuestion;
+  const winner  = CURRENT_GAME.winner;
+
+  app.innerHTML = `
+    <div class="tabs">
+      <button class="active" data-tab="game">🎮 Spel</button>
+      <button data-tab="questions">📝 Vragen</button>
+      <button data-tab="scores">🏆 Scores</button>
+    </div>
+    <div id="tab-content"></div>`;
+
+  app.querySelectorAll('.tabs button').forEach(b=>{
+    b.onclick = ()=>{
+      app.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('active'));
+      b.classList.add('active');
+      renderTab(b.dataset.tab);
+    };
+  });
+  renderTab('game');
+}
+
+function renderTab(tab){
+  const c = document.getElementById('tab-content');
+  if(tab === 'game') return renderGameTab(c);
+  if(tab === 'questions') return renderQuestionsTab(c);
+  if(tab === 'scores') return renderScoresTab(c);
+}
+
+function renderGameTab(c){
+  const activeQ = CURRENT_GAME.activeQuestion;
+  const winner = CURRENT_GAME.winner;
+  const startBtn = CURRENT_GAME.started ? 
+      `<button class="danger" id="btnStop">⏹ Stop spel</button>` :
+      `<button class="ok" id="btnStart">▶ Start spel</button>`;
+  const winnerHtml = winner ? `<div class="panel" style="border:2px solid var(--acc);">
+      🏆 Winnaar: <b>${winner.naam}</b> (${winner.klas})</div>` : '';
+
+  c.innerHTML = `
+    <div class="panel">
+      <h2>Spelbesturing</h2>
+      <p class="small">Aantal vragen in database: <b>${QUESTIONS.length}</b></p>
+      ${winnerHtml}
+      <div class="row">
+        ${startBtn}
+        <button class="ghost" id="btnReset">♻ Reset kaarten & spel</button>
+      </div>
+      <hr style="border-color:#2a3054;margin:18px 0;">
+      <h3>Actieve vraag</h3>
+      <div class="row">
+        <select id="selQ">
+          ${QUESTIONS.map(q=>`<option value="${q.id}" ${activeQ===q.id?'selected':''}>Vraag ${q.id}: ${q.q.substring(0,50)}${q.q.length>50?'…':''}</option>`).join('')}
+        </select>
+        <button class="ok" id="btnShow">Toon vraag</button>
+        <button class="ghost" id="btnHide">Verberg</button>
+      </div>
+      <p class="small">Actief: <b>${activeQ ? 'Vraag '+activeQ : 'geen'}</b></p>
+    </div>
+
+    <div class="panel" style="margin-top:16px;">
+      <h3>Live voortgang</h3>
+      <div id="liveProgress" class="small">Laden…</div>
+    </div>`;
+
+  const btnStart = document.getElementById('btnStart');
+  if(btnStart) btnStart.onclick = async ()=>{
+    await saveGame({...CURRENT_GAME, started:true, winner:null});
+    toast("Spel gestart!");
+  };
+  const btnStop = document.getElementById('btnStop');
+  if(btnStop) btnStop.onclick = async ()=>{
+    await saveGame({...CURRENT_GAME, started:false, activeQuestion:null});
+    toast("Spel gestopt");
+  };
+  document.getElementById('btnReset').onclick = async ()=>{
+    if(!confirm("Reset alle kaarten, voortgang en winnaar?")) return;
+    await window.fb.set(window.fb.ref(window.db, "bingo/cards"), null);
+    await window.fb.set(window.fb.ref(window.db, "bingo/progress"), null);
+    await window.fb.set(window.fb.ref(window.db, "bingo/scores"), null);
+    await saveGame({ started:false, activeQuestion:null, winner:null });
+    toast("Alles gereset");
+  };
+  document.getElementById('btnShow').onclick = async ()=>{
+    const qid = parseInt(document.getElementById('selQ').value,10);
+    await saveGame({...CURRENT_GAME, activeQuestion:qid, started:true});
+    toast("Vraag "+qid+" getoond");
+  };
+  document.getElementById('btnHide').onclick = async ()=>{
+    await saveGame({...CURRENT_GAME, activeQuestion:null});
+  };
+
+  // Live progress
+  window.fb.onValue(window.fb.ref(window.db, "bingo/progress"), snap=>{
+    const data = snap.val() || {};
+    const el = document.getElementById('liveProgress');
+    if(!el) return;
+    const entries = Object.entries(data).map(([uid,prog])=>{
+      const naam = uid.replace(/^[A-Z]+_/,'').replace(/_/g,' ');
+      return {uid, naam, count:Object.keys(prog).length};
+    }).sort((a,b)=> b.count - a.count);
+    el.innerHTML = entries.length ? entries.map(e=>
+      `<div style="padding:6px 0;border-bottom:1px solid #2a3054;">
+        <b>${e.naam}</b> — ${e.count}/25
+        <div style="height:6px;background:#2a3054;border-radius:3px;margin-top:4px;">
+          <div style="height:6px;width:${(e.count/25*100)}%;background:linear-gradient(90deg,#4a90e2,#2ecc71);border-radius:3px;"></div>
+        </div>
+      </div>`).join('') : '<i>Nog geen voortgang…</i>';
+  });
+}
+
+/* ---- Vragenbeheer ---- */
+function renderQuestionsTab(c){
+  c.innerHTML = `
+    <div class="panel">
+      <h2>Vragen invoeren</h2>
+      <p class="small">Voer hier alle vragen in. Kies per vraag het type (multiple choice of kort antwoord).</p>
+      <div id="editor"></div>
+      <div class="row">
+        <button class="ghost" id="btnAdd">+ Vraag toevoegen</button>
+        <button class="ok" id="btnSave">💾 Opslaan in database</button>
+        <button class="danger" id="btnClear">🗑 Alles wissen</button>
+      </div>
+      <p class="small" id="status"></p>
+    </div>`;
+  const editor = document.getElementById('editor');
+  let draft = JSON.parse(JSON.stringify(QUESTIONS));
+  if(!draft.length) draft = [newQuestion(1)];
+
+  function newQuestion(id){
+    return { id, type:"mc", q:"", options:["","","",""], correct:"A", answer:"" };
+  }
+  function draw(){
+    editor.innerHTML = draft.map((q,i)=>{
+      const optInputs = q.options.map((o,j)=>
+        `<input placeholder="Optie ${String.fromCharCode(65+j)}" value="${escapeHtml(o)}" data-i="${i}" data-j="${j}" class="optIn">`
+      ).join('');
+      const correctSel = `
+        <select class="correctSel" data-i="${i}">
+          ${['A','B','C','D'].map(l=>`<option value="${l}" ${q.correct===l?'selected':''}>${l}</option>`).join('')}
+        </select>`;
+      const shortInput = `<input class="shortIn" data-i="${i}" placeholder="Juiste antwoord" value="${escapeHtml(q.answer||'')}">`;
+      return `
+        <div class="q-editor">
+          <div class="row">
+            <b>Vraag ${q.id}</b>
+            <select class="typeSel" data-i="${i}">
+              <option value="mc" ${q.type==='mc'?'selected':''}>Multiple choice</option>
+              <option value="short" ${q.type==='short'?'selected':''}>Kort antwoord</option>
+            </select>
+            <button class="danger delQ" data-i="${i}">Verwijderen</button>
+          </div>
+          <textarea class="qText" data-i="${i}" rows="2" placeholder="Vraagstelling…">${escapeHtml(q.q)}</textarea>
+          <div class="row">${q.type==='mc' ? optInputs : shortInput}</div>
+          ${q.type==='mc' ? `<div class="row"><span class="small">Correct:</span>${correctSel}</div>` : ''}
+        </div>`;
+    }).join('');
+
+    // listeners
+    editor.querySelectorAll('.qText').forEach(el=> el.oninput = e=>{
+      draft[e.target.dataset.i].q = e.target.value;
+    });
+    editor.querySelectorAll('.typeSel').forEach(el=> el.onchange = e=>{
+      draft[e.target.dataset.i].type = e.target.value; draw();
+    });
+    editor.querySelectorAll('.optIn').forEach(el=> el.oninput = e=>{
+      draft[e.target.dataset.i].options[e.target.dataset.j] = e.target.value;
+    });
+    editor.querySelectorAll('.correctSel').forEach(el=> el.onchange = e=>{
+      draft[e.target.dataset.i].correct = e.target.value;
+    });
+    editor.querySelectorAll('.shortIn').forEach(el=> el.oninput = e=>{
+      draft[e.target.dataset.i].answer = e.target.value;
+    });
+    editor.querySelectorAll('.delQ').forEach(el=> el.onclick = e=>{
+      draft.splice(e.target.dataset.i,1);
+      draft.forEach((q,i)=> q.id = i+1);
+      draw();
+    });
+  }
+  draw();
+
+  document.getElementById('btnAdd').onclick = ()=>{
+    draft.push(newQuestion(draft.length+1));
+    draw();
+  };
+  document.getElementById('btnSave').onclick
