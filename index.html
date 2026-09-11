@@ -211,7 +211,7 @@ const CLASSES = ["ALPHA","BRAVO","CHARLIE","DELTA","ECHO","FOXTROT","GOLF","HOTE
 let ME = { naam:"", klas:"", role:null, uid:null };
 let QUESTIONS = [];
 let STANDARD_SETS = {};
-let CURRENT_GAME = { activeQuestion: null, started:false, winner:null };
+let CURRENT_GAME = { activeQuestion: null, started:false, winner:null, drawnQuestions:[] };
 let MY_CARD = [];
 let MY_DONE = {};
 let ALL_SCORES = {};
@@ -566,30 +566,50 @@ function renderTab(tab){
 function renderGameTab(c){
   const activeQ = CURRENT_GAME.activeQuestion;
   const winner = CURRENT_GAME.winner;
-  const startBtn = CURRENT_GAME.started ?
-      `<button class="danger" id="btnStop">⏹ Stop spel</button>` :
-      `<button class="ok" id="btnStart">▶ Start spel</button>`;
+  const drawn = CURRENT_GAME.drawnQuestions || [];
+  const total = QUESTIONS.length;
+  const remaining = QUESTIONS.filter(q=> !drawn.includes(q.id)).length;
+  const allDrawn = total > 0 && remaining === 0;
+
   const winnerHtml = winner ? `<div class="panel" style="border:2px solid var(--acc);margin-top:12px;">
       🏆 Winnaar: <b>${escapeHtml(winner.naam)}</b> (${escapeHtml(winner.klas)})</div>` : '';
 
+  const activeQObj = activeQ ? QUESTIONS.find(q=> q.id === activeQ) : null;
+  const activeHtml = activeQObj ? `
+    <div style="background:linear-gradient(135deg,#2b1e5e,#3a1f66);border:3px solid var(--acc);
+      border-radius:16px;padding:22px;margin-top:14px;text-align:center;box-shadow:0 0 40px rgba(255,209,102,.4);">
+      <div class="small" style="color:var(--acc);letter-spacing:2px;">🎯 ACTIEVE VRAAG</div>
+      <h2 style="margin:8px 0;font-size:2rem;">Vraag ${activeQObj.id}</h2>
+      <p style="font-size:1.05rem;line-height:1.5;">${escapeHtml(activeQObj.q)}</p>
+      <div class="small">Type: ${activeQObj.type === 'mc' ? 'Multiple choice' : 'Kort antwoord'}</div>
+    </div>` : `
+    <div style="background:#1a1f38;border:2px dashed #3a4270;border-radius:16px;padding:30px;
+      margin-top:14px;text-align:center;">
+      <div style="font-size:3rem;">🎰</div>
+      <p class="small">Nog geen actieve vraag. Klik op TOMBOLA om een random vraag te trekken.</p>
+    </div>`;
+
   c.innerHTML = `
     <div class="panel">
-      <h2>Spelbesturing</h2>
-      <p class="small">Aantal vragen in database: <b>${QUESTIONS.length}</b></p>
-      <div class="row">${startBtn}
-        <button class="ghost" id="btnReset">♻ Reset kaarten & spel</button>
+      <h2>🎰 Tombola</h2>
+      <p class="small">Aantal vragen in database: <b>${total}</b> •
+        Reeds getrokken: <b>${drawn.length}</b> • Nog in de tombola: <b>${remaining}</b></p>
+
+      <div class="row" style="margin-top:16px;">
+        <button class="acc" id="btnTombola" style="font-size:1.1rem;padding:16px 22px;"
+          ${allDrawn || !total ? 'disabled style="opacity:.5;cursor:not-allowed;font-size:1.1rem;padding:16px 22px;"' : ''}>
+          🎰 TOMBOLA — Trek random vraag
+        </button>
+        <button class="ghost" id="btnHide">🙈 Verberg actieve vraag</button>
+        <button class="danger" id="btnResetTomb">🎲 Reset tombola</button>
       </div>
+      ${activeHtml}
       ${winnerHtml}
       <hr style="border-color:#2a3054;margin:18px 0;">
-      <h3>Actieve vraag</h3>
       <div class="row">
-        <select id="selQ">
-          ${QUESTIONS.map(q=>`<option value="${q.id}" ${activeQ===q.id?'selected':''}>Vraag ${q.id}: ${escapeHtml((q.q||'').substring(0,50))}${q.q.length>50?'…':''}</option>`).join('')}
-        </select>
-        <button class="ok" id="btnShow">Toon vraag</button>
-        <button class="ghost" id="btnHide">Verberg</button>
+        <button class="ghost" id="btnReset">♻ Reset kaarten & spel (alles)</button>
       </div>
-      <p class="small">Actief: <b>${activeQ ? 'Vraag '+activeQ : 'geen'}</b></p>
+      <p class="small">Getrokken: ${drawn.length ? drawn.join(', ') : '—'}</p>
     </div>
 
     <div class="panel" style="margin-top:16px;">
@@ -597,32 +617,50 @@ function renderGameTab(c){
       <div id="liveProgress" class="small">Laden…</div>
     </div>`;
 
-  const btnStart = document.getElementById('btnStart');
-  if(btnStart) btnStart.onclick = async ()=>{
-    await saveGame({...CURRENT_GAME, started:true, winner:null});
-    toast("Spel gestart!");
+  const btnTombola = document.getElementById('btnTombola');
+  if(btnTombola) btnTombola.onclick = async ()=>{
+    const freshGame = await loadGame();
+    const freshQ = await loadQuestionSet();
+    const alreadyDrawn = freshGame.drawnQuestions || [];
+    const pool = freshQ.filter(q=> !alreadyDrawn.includes(q.id));
+    if(!pool.length){
+      toast("Alle vragen zijn al getrokken. Reset de tombola.", true);
+      return;
+    }
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    await saveGame({
+      ...freshGame,
+      activeQuestion: pick.id,
+      started: true,
+      winner: freshGame.winner || null,
+      drawnQuestions: [...alreadyDrawn, pick.id]
+    });
+    toast(`🎰 Vraag ${pick.id} getrokken!`);
+    confettiBurst(60);
   };
-  const btnStop = document.getElementById('btnStop');
-  if(btnStop) btnStop.onclick = async ()=>{
-    await saveGame({...CURRENT_GAME, started:false, activeQuestion:null});
-    toast("Spel gestopt");
+
+  document.getElementById('btnHide').onclick = async ()=>{
+    await saveGame({...CURRENT_GAME, activeQuestion:null});
+    toast("Vraag verborgen voor studenten");
   };
+
+  document.getElementById('btnResetTomb').onclick = async ()=>{
+    if(!confirm("Tombola resetten? Alle vragen komen terug in de pot. Kaarten en voortgang blijven bewaard.")) return;
+    await saveGame({
+      ...CURRENT_GAME,
+      activeQuestion: null,
+      drawnQuestions: []
+    });
+    toast("Tombola gereset — alle vragen weer beschikbaar");
+  };
+
   document.getElementById('btnReset').onclick = async ()=>{
-    if(!confirm("Reset alle kaarten, voortgang en winnaar?")) return;
+    if(!confirm("Reset ALLES? Kaarten, voortgang, scores, winnaar en tombola worden gewist.")) return;
     await window.fb.set(window.fb.ref(window.db, "bingo/cards"), null);
     await window.fb.set(window.fb.ref(window.db, "bingo/progress"), null);
     await window.fb.set(window.fb.ref(window.db, "bingo/scores"), null);
-    await saveGame({ started:false, activeQuestion:null, winner:null });
+    await saveGame({ started:false, activeQuestion:null, winner:null, drawnQuestions:[] });
     toast("Alles gereset");
-  };
-  document.getElementById('btnShow').onclick = async ()=>{
-    if(!QUESTIONS.length) return toast("Voer eerst vragen in", true);
-    const qid = parseInt(document.getElementById('selQ').value,10);
-    await saveGame({...CURRENT_GAME, activeQuestion:qid, started:true});
-    toast("Vraag "+qid+" getoond");
-  };
-  document.getElementById('btnHide').onclick = async ()=>{
-    await saveGame({...CURRENT_GAME, activeQuestion:null});
   };
 
   window.fb.onValue(window.fb.ref(window.db, "bingo/progress"), snap=>{
@@ -796,7 +834,7 @@ function renderSetsTab(c){
       if(!s) return;
       await saveQuestionSet(s.questions||[]);
       QUESTIONS = s.questions||[];
-      await saveGame({ started:true, activeQuestion:null, winner:null });
+      await saveGame({ started:true, activeQuestion:null, winner:null, drawnQuestions:[] });
       toast(`Set "${s.naam}" direct geactiveerd`);
     });
     list.querySelectorAll('.delSet').forEach(b=> b.onclick = async ()=>{
