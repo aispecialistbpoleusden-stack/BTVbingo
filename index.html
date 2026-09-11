@@ -127,7 +127,7 @@
 
   .set-item{display:flex;justify-content:space-between;align-items:center;
     padding:10px 14px;background:#1a1f38;border-radius:10px;margin-bottom:8px;
-    border-left:4px solid var(--blue);flex-wrap:wrap;gap:8px;}
+    border-left:4px solid var(--blue);}
   .set-item .meta{font-size:.85rem;color:#aab;}
 
   #debug{position:fixed;bottom:0;left:0;right:0;max-height:120px;overflow:auto;
@@ -215,7 +215,6 @@ let MY_CARD = [];
 let MY_DONE = {};
 let ALL_SCORES = {};
 let listenersBound = false;
-let booted = false;
 
 /* ============ HELPERS ============ */
 function toast(msg, err){
@@ -255,7 +254,6 @@ function render(){
   }catch(err){
     dbg('RENDER CRASH: '+err.message);
     console.error(err);
-    // Toon nooit het inlogscherm als er al ingelogd is — toon foutmelding
     document.getElementById('app').innerHTML =
       `<div class="panel"><h2>Fout bij weergeven</h2><p class="small">${escapeHtml(err.message)}</p>
        <button class="ghost" onclick="location.reload()">Herladen</button></div>`;
@@ -298,13 +296,11 @@ function renderLogin(){
 
 /* ============ DATA INIT ============ */
 async function initData(){
-  // Vragen & game eenmalig ophalen
   QUESTIONS   = await loadQuestionSet();
   CURRENT_GAME= await loadGame();
   STANDARD_SETS = await loadStandardSets();
   dbg('Data geladen. Vragen: '+QUESTIONS.length);
 
-  // Kaart & voortgang voor student
   if(ME.role === "student"){
     try{
       const snap = await window.fb.get(window.fb.ref(window.db, "bingo/cards/"+ME.uid));
@@ -316,32 +312,33 @@ async function initData(){
     }catch(err){ dbg('KAART FOUT: '+err.message); }
   }
 
-  // Listeners slechts één keer koppelen
   if(listenersBound) return;
   listenersBound = true;
 
   window.fb.onValue(window.fb.ref(window.db,"bingo/game"), s=>{
     CURRENT_GAME = s.val() || {};
-    if(ME.uid && ME.role==="student") render();
+    if(ME.role==="student") renderStudent();
   });
   window.fb.onValue(window.fb.ref(window.db,"bingo/scores"), s=>{
     ALL_SCORES = s.val() || {};
-    if(ME.uid) render();
+    if(ME.role==="student") renderStudent();
+    if(ME.role==="teacher") renderTeacher();
   });
   window.fb.onValue(window.fb.ref(window.db,"bingo/questions"), s=>{
     QUESTIONS = s.val() || [];
-    if(ME.uid && ME.role==="teacher") render();
+    if(ME.role==="teacher") renderTeacher();
   });
   window.fb.onValue(window.fb.ref(window.db,"bingo/standardsets"), s=>{
     STANDARD_SETS = s.val() || {};
-    if(ME.uid && ME.role==="teacher") render();
+    if(ME.role==="teacher") renderTeacher();
   });
   if(ME.role === "student"){
     window.fb.onValue(window.fb.ref(window.db,"bingo/cards/"+ME.uid), s=>{
-      if(s.exists() && ME.uid){ MY_CARD = s.val(); render(); }
+      if(s.exists()){ MY_CARD = s.val(); renderStudent(); }
     });
     window.fb.onValue(window.fb.ref(window.db,"bingo/progress/"+ME.uid), s=>{
-      if(ME.uid){ MY_DONE = s.val() || {}; render(); }
+      MY_DONE = s.val() || {};
+      renderStudent();
     });
   }
 }
@@ -780,7 +777,7 @@ function renderSetsTab(c){
           <b>${escapeHtml(s.naam || k)}</b>
           <div class="meta">${(s.questions||[]).length} vragen • opgeslagen ${new Date(s.ts||0).toLocaleString('nl-NL')}</div>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <div style="display:flex;gap:8px;">
           <button class="ok loadSet" data-key="${k}">📥 Laden in editor</button>
           <button class="ghost loadDirect" data-key="${k}">🚀 Direct activeren</button>
           <button class="danger delSet" data-key="${k}">🗑</button>
